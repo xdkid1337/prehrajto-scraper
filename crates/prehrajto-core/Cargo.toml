@@ -4,7 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 description = "Core scraping library for prehraj.to"
+readme = "README.md"
+keywords = ["scraper", "video", "prehrajto", "async"]
+categories = ["web-programming"]
 
 [dependencies]
 tokio = { workspace = true }
