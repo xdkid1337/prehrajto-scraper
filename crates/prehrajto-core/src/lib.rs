@@ -1,13 +1,13 @@
 //! Prehraj.to Scraper Core Library
 //!
-//! Provides async API for searching videos and getting download links from prehraj.to.
+//! Provides async API for searching videos and getting download/streaming URLs from prehraj.to.
 //!
 //! # Overview
 //!
 //! This crate provides a complete scraping solution for prehraj.to with:
 //! - Rate-limited HTTP client to avoid overwhelming the server
 //! - HTML parsers for extracting video information
-//! - High-level API for searching and downloading videos
+//! - High-level API for searching videos and getting direct CDN URLs
 //!
 //! # Example
 //!
@@ -20,13 +20,30 @@
 //!     
 //!     // Search for videos
 //!     let results = scraper.search("doctor who").await?;
-//!     for video in results {
+//!     
+//!     for video in &results {
 //!         println!("{}: {}", video.name, video.download_url);
+//!     }
+//!     
+//!     // Get direct CDN URL for streaming/downloading
+//!     if let Some(video) = results.first() {
+//!         let cdn_url = scraper.get_direct_url(&video.video_slug, &video.video_id).await?;
+//!         println!("Direct CDN URL: {}", cdn_url);
+//!         // Returns: https://pf-storage4.premiumcdn.net/...?token=...&expires=...
 //!     }
 //!     
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Direct CDN URLs
+//!
+//! The [`PrehrajtoScraper::get_direct_url`] method extracts the actual CDN URL
+//! (premiumcdn.net) from the download page. This URL can be used for direct
+//! file download or video streaming.
+//!
+//! **Important:** CDN URLs contain `token` and `expires` parameters and will
+//! stop working after expiration (typically hours). Do not cache them long-term.
 
 mod client;
 mod error;
@@ -42,7 +59,7 @@ pub use client::{ClientConfig, PrehrajtoClient, RateLimiter};
 pub use error::{PrehrajtoError, Result};
 
 // Re-export parser functions
-pub use parser::parse_search_results;
+pub use parser::{parse_direct_url, parse_search_results};
 
 // Re-export main scraper API
 pub use scraper::PrehrajtoScraper;

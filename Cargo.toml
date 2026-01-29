@@ -32,6 +32,9 @@ thiserror = "2"
 # URL encoding
 urlencoding = "2"
 
+# Regex
+regex = "1"
+
 # Tauri
 tauri = { version = "2", features = [] }
 

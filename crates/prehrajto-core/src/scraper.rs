@@ -4,7 +4,7 @@
 
 use crate::client::{ClientConfig, PrehrajtoClient};
 use crate::error::{PrehrajtoError, Result};
-use crate::parser::parse_search_results;
+use crate::parser::{parse_direct_url, parse_search_results};
 use crate::types::VideoResult;
 use crate::url::{build_download_url, build_search_url};
 
@@ -124,6 +124,56 @@ impl PrehrajtoScraper {
 
         Ok(build_download_url(video_slug, video_id))
     }
+
+    /// Get direct CDN URL for a video file
+    ///
+    /// Fetches the download page and extracts the actual CDN URL
+    /// (premiumcdn.net) with token and expiration parameters.
+    ///
+    /// # Arguments
+    /// * `video_slug` - URL slug of the video (e.g., "teorie-velkeho-tresku-s01e01-cz-dabing")
+    /// * `video_id` - ID of the video (e.g., "5cf41ef5c543f")
+    ///
+    /// # Returns
+    /// Direct URL to CDN (premiumcdn.net) with token and expiration
+    ///
+    /// # Errors
+    /// - `InvalidId` if video_id is empty
+    /// - `NotFound` if CDN URL cannot be found in the response
+    /// - `HttpError` for network errors
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example() -> prehrajto_core::Result<()> {
+    /// use prehrajto_core::PrehrajtoScraper;
+    /// let scraper = PrehrajtoScraper::new()?;
+    /// let direct_url = scraper.get_direct_url("doctor-who-s07e05", "63aba7f51f6cf").await?;
+    /// // Returns something like:
+    /// // https://prg-c8-storage5.premiumcdn.net/13756776/...?filename=...&token=...&expires=...
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Note
+    /// The returned URL has an expiration time (expires parameter),
+    /// so it cannot be cached long-term.
+    pub async fn get_direct_url(&self, video_slug: &str, video_id: &str) -> Result<String> {
+        // Validate video_id is not empty
+        if video_id.trim().is_empty() {
+            return Err(PrehrajtoError::InvalidId(
+                "Video ID cannot be empty".to_string(),
+            ));
+        }
+
+        // Build the download URL path
+        let path = format!("/{}/{}?do=download", video_slug, video_id);
+
+        // Fetch the download page
+        let html = self.client.fetch(&path).await?;
+
+        // Parse and extract the direct CDN URL
+        parse_direct_url(&html)
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +249,30 @@ mod tests {
     async fn test_search_whitespace_query() {
         let scraper = PrehrajtoScraper::new().unwrap();
         let result = scraper.search("   ").await;
+        assert!(result.is_err());
+        match result {
+            Err(PrehrajtoError::InvalidId(_)) => {}
+            _ => panic!("Expected InvalidId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_direct_url_empty_id() {
+        let scraper = PrehrajtoScraper::new().unwrap();
+        let result = scraper.get_direct_url("some-slug", "").await;
+        assert!(result.is_err());
+        match result {
+            Err(PrehrajtoError::InvalidId(msg)) => {
+                assert!(msg.contains("empty"));
+            }
+            _ => panic!("Expected InvalidId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_direct_url_whitespace_id() {
+        let scraper = PrehrajtoScraper::new().unwrap();
+        let result = scraper.get_direct_url("some-slug", "   ").await;
         assert!(result.is_err());
         match result {
             Err(PrehrajtoError::InvalidId(_)) => {}
