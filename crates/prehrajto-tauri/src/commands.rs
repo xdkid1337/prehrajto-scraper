@@ -58,3 +58,28 @@ pub async fn get_download_url(
         .get_download_url(&video_slug, &video_id)
         .map_err(|e| e.to_string())
 }
+
+/// Search for a movie on prehraj.to
+///
+/// # Arguments
+/// * `state` - Managed ScraperState from Tauri
+/// * `movie_name` - Movie title to search for
+/// * `year` - Optional release year to narrow results
+///
+/// # Returns
+/// Best matching video result, or null if not found
+///
+/// # Errors
+/// Returns error message as String if search fails
+#[tauri::command]
+pub async fn search_movie(
+    state: State<'_, ScraperState>,
+    movie_name: String,
+    year: Option<i32>,
+) -> Result<Option<VideoResult>, String> {
+    let scraper = state.scraper.lock().await;
+    scraper
+        .search_movie(&movie_name, year)
+        .await
+        .map_err(|e| e.to_string())
+}

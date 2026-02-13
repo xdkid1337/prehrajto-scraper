@@ -92,7 +92,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("prehrajto")
         .invoke_handler(tauri::generate_handler![
             commands::search_videos,
-            commands::get_download_url
+            commands::get_download_url,
+            commands::search_movie
         ])
         .setup(|app, _api| {
             let state = ScraperState::new().map_err(Box::<dyn std::error::Error>::from)?;

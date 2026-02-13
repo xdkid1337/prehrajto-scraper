@@ -5,6 +5,7 @@
 Cargo.lock
 
 # IDE
+.agent/
 .kiro/
 .idea/
 .vscode/

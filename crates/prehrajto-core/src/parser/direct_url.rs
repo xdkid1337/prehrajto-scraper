@@ -61,10 +61,10 @@ fn extract_from_anchor(html: &str) -> Option<String> {
     let selector = Selector::parse("a[href]").ok()?;
     
     for element in document.select(&selector) {
-        if let Some(href) = element.value().attr("href") {
-            if is_cdn_url(href) {
-                return Some(decode_html_entities(href));
-            }
+        if let Some(href) = element.value().attr("href")
+            && is_cdn_url(href)
+        {
+            return Some(decode_html_entities(href));
         }
     }
     None
@@ -77,10 +77,10 @@ fn extract_from_video_element(html: &str) -> Option<String> {
     // Try <video src="...">
     if let Ok(selector) = Selector::parse("video[src]") {
         for element in document.select(&selector) {
-            if let Some(src) = element.value().attr("src") {
-                if is_cdn_url(src) {
-                    return Some(decode_html_entities(src));
-                }
+            if let Some(src) = element.value().attr("src")
+                && is_cdn_url(src)
+            {
+                return Some(decode_html_entities(src));
             }
         }
     }
@@ -88,10 +88,10 @@ fn extract_from_video_element(html: &str) -> Option<String> {
     // Try <source src="...">
     if let Ok(selector) = Selector::parse("source[src]") {
         for element in document.select(&selector) {
-            if let Some(src) = element.value().attr("src") {
-                if is_cdn_url(src) {
-                    return Some(decode_html_entities(src));
-                }
+            if let Some(src) = element.value().attr("src")
+                && is_cdn_url(src)
+            {
+                return Some(decode_html_entities(src));
             }
         }
     }
@@ -114,12 +114,11 @@ fn extract_from_javascript(html: &str) -> Option<String> {
     ];
     
     for pattern in patterns {
-        if let Ok(re) = Regex::new(pattern) {
-            if let Some(caps) = re.captures(html) {
-                if let Some(url) = caps.get(1) {
-                    return Some(url.as_str().to_string());
-                }
-            }
+        if let Ok(re) = Regex::new(pattern)
+            && let Some(caps) = re.captures(html)
+            && let Some(url) = caps.get(1)
+        {
+            return Some(url.as_str().to_string());
         }
     }
     

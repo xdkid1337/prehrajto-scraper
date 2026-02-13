@@ -174,6 +174,93 @@ impl PrehrajtoScraper {
         // Parse and extract the direct CDN URL
         parse_direct_url(&html)
     }
+
+    /// Search for a movie by name, returning the best match
+    ///
+    /// Builds a query from the movie name and optional release year,
+    /// then returns the first (best) matching result.
+    ///
+    /// # Arguments
+    /// * `movie_name` - Movie title to search for
+    /// * `year` - Optional release year to narrow results
+    ///
+    /// # Returns
+    /// The best matching `VideoResult`, or `None` if no results found
+    ///
+    /// # Errors
+    /// - `InvalidId` if movie_name is empty or whitespace only
+    /// - `HttpError` if network request fails
+    /// - `ParseError` if HTML parsing fails
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example() -> prehrajto_core::Result<()> {
+    /// use prehrajto_core::PrehrajtoScraper;
+    /// let scraper = PrehrajtoScraper::new()?;
+    /// let movie = scraper.search_movie("Inception", Some(2010)).await?;
+    /// if let Some(video) = movie {
+    ///     println!("{}: {}", video.name, video.download_url);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn search_movie(
+        &self,
+        movie_name: &str,
+        year: Option<i32>,
+    ) -> Result<Option<VideoResult>> {
+        let results = self.search_movie_all(movie_name, year).await?;
+        Ok(results.into_iter().next())
+    }
+
+    /// Search for all movie sources by name
+    ///
+    /// Builds a query from the movie name and optional release year,
+    /// then returns all matching results.
+    ///
+    /// # Arguments
+    /// * `movie_name` - Movie title to search for
+    /// * `year` - Optional release year to narrow results
+    ///
+    /// # Returns
+    /// Vector of matching video results, empty if no results found
+    ///
+    /// # Errors
+    /// - `InvalidId` if movie_name is empty or whitespace only
+    /// - `HttpError` if network request fails
+    /// - `ParseError` if HTML parsing fails
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example() -> prehrajto_core::Result<()> {
+    /// use prehrajto_core::PrehrajtoScraper;
+    /// let scraper = PrehrajtoScraper::new()?;
+    /// let results = scraper.search_movie_all("Inception", Some(2010)).await?;
+    /// for video in results {
+    ///     println!("{}: {}", video.name, video.download_url);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn search_movie_all(
+        &self,
+        movie_name: &str,
+        year: Option<i32>,
+    ) -> Result<Vec<VideoResult>> {
+        let trimmed = movie_name.trim();
+        if trimmed.is_empty() {
+            return Err(PrehrajtoError::InvalidId(
+                "Movie name cannot be empty".to_string(),
+            ));
+        }
+
+        let query = match year {
+            Some(y) => format!("{} {}", trimmed, y),
+            None => trimmed.to_string(),
+        };
+
+        self.search(&query).await
+    }
 }
 
 #[cfg(test)]
@@ -276,6 +363,43 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(PrehrajtoError::InvalidId(_)) => {}
+            _ => panic!("Expected InvalidId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_movie_empty_name() {
+        let scraper = PrehrajtoScraper::new().unwrap();
+        let result = scraper.search_movie("", None).await;
+        assert!(result.is_err());
+        match result {
+            Err(PrehrajtoError::InvalidId(msg)) => {
+                assert!(msg.contains("empty"));
+            }
+            _ => panic!("Expected InvalidId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_movie_whitespace_name() {
+        let scraper = PrehrajtoScraper::new().unwrap();
+        let result = scraper.search_movie("   ", Some(2020)).await;
+        assert!(result.is_err());
+        match result {
+            Err(PrehrajtoError::InvalidId(_)) => {}
+            _ => panic!("Expected InvalidId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_movie_all_empty_name() {
+        let scraper = PrehrajtoScraper::new().unwrap();
+        let result = scraper.search_movie_all("", Some(2020)).await;
+        assert!(result.is_err());
+        match result {
+            Err(PrehrajtoError::InvalidId(msg)) => {
+                assert!(msg.contains("empty"));
+            }
             _ => panic!("Expected InvalidId error"),
         }
     }
