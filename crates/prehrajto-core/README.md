@@ -7,6 +7,9 @@ Async Rust library for searching videos and getting download links from [prehraj
 - 🔍 Search videos by keywords
 - 📥 Generate download URLs
 - 🎯 Extract direct CDN URLs (premiumcdn.net) for streaming/downloading
+- 🎬 **Quality selection** — fetch all quality variants, returns best by default
+- 📝 **Subtitle extraction** — parse VTT subtitle tracks with language metadata
+- 📦 **Original file download** — cookie-based flow for the original uploaded file
 - ⏱️ Built-in rate limiting to respect server limits
 - 🔄 Automatic retry with exponential backoff
 - 📦 Serde serialization support
@@ -15,11 +18,13 @@ Async Rust library for searching videos and getting download links from [prehraj
 
 ```toml
 [dependencies]
-prehrajto-core = "0.1"
+prehrajto-core = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
 ## Usage
+
+### Search & Stream
 
 ```rust
 use prehrajto_core::{PrehrajtoScraper, Result};
@@ -27,44 +32,55 @@ use prehrajto_core::{PrehrajtoScraper, Result};
 #[tokio::main]
 async fn main() -> Result<()> {
     let scraper = PrehrajtoScraper::new()?;
-    
+
     // Search for videos
     let results = scraper.search("doctor who").await?;
-    
-    for video in results {
+
+    for video in &results {
         println!("{}", video.name);
         println!("  Duration: {:?}", video.duration);
         println!("  Size: {:?}", video.file_size);
-        println!("  Download: {}", video.download_url);
     }
-    
-    // Get direct CDN URL for streaming/downloading
+
+    // Get best quality CDN URL
     if let Some(video) = results.first() {
         let cdn_url = scraper.get_direct_url(&video.video_slug, &video.video_id).await?;
         println!("CDN URL: {}", cdn_url);
-        // Returns: https://pf-storage4.premiumcdn.net/...?token=...&expires=...
     }
-    
+
     Ok(())
 }
 ```
 
-## Direct CDN URLs
+### Video Page Data (Sources + Subtitles)
 
-The `get_direct_url` method extracts the actual CDN URL from the download page:
+Fetch all quality variants and subtitle tracks in a **single request**:
 
 ```rust
-let cdn_url = scraper.get_direct_url(&video.video_slug, &video.video_id).await?;
+let data = scraper.get_video_page_data(slug, id).await?;
+
+// Quality sources (e.g., 1080p, 720p)
+for source in &data.sources {
+    println!("{}p {} — {}", source.resolution, source.label, source.url);
+}
+
+// Subtitle tracks (VTT)
+for track in &data.subtitles {
+    println!("{} ({}) — {}", track.label, track.language, track.url);
+}
 ```
 
-**Important notes:**
-- The URL contains `token` and `expires` parameters
-- URLs expire after a limited time (typically hours) - don't cache long-term
-- Use this URL for actual file download or video streaming
+### Original File Download
+
+Get the original uploaded file via cookie-based download flow:
+
+```rust
+let original = scraper.get_original_url(slug, id).await?;
+println!("{}p {} — {}", original.resolution, original.label, original.url);
+// e.g., 2160p MKV original
+```
 
 ## Configuration
-
-Customize the HTTP client behavior:
 
 ```rust
 use prehrajto_core::{PrehrajtoScraper, ClientConfig};
@@ -78,7 +94,9 @@ let config = ClientConfig {
 let scraper = PrehrajtoScraper::with_config(config)?;
 ```
 
-## VideoResult
+## Data Types
+
+### VideoResult (search results)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -86,10 +104,29 @@ let scraper = PrehrajtoScraper::with_config(config)?;
 | `url` | `String` | Video page URL |
 | `video_id` | `String` | Unique video ID |
 | `video_slug` | `String` | URL-friendly slug |
-| `download_url` | `String` | Download page URL (redirects) |
+| `download_url` | `String` | Download page URL |
 | `duration` | `Option<String>` | Duration (HH:MM:SS) |
 | `quality` | `Option<String>` | Quality (e.g., "HD") |
 | `file_size` | `Option<String>` | File size |
+
+### VideoSource (quality variants)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | `String` | Direct CDN URL |
+| `label` | `String` | Quality label (e.g., "1080p") |
+| `resolution` | `u32` | Resolution height (720, 1080, …) |
+| `is_default` | `bool` | Default quality in player |
+| `format` | `Option<String>` | File extension (mp4, mkv, …) |
+
+### SubtitleTrack
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | `String` | VTT file CDN URL |
+| `language` | `String` | ISO code (e.g., "eng", "cze") |
+| `label` | `String` | Display label (e.g., "ENG") |
+| `is_default` | `bool` | Default subtitle track |
 
 ## API Methods
 
@@ -97,7 +134,13 @@ let scraper = PrehrajtoScraper::with_config(config)?;
 |--------|-------------|
 | `search(query)` | Search videos by keywords |
 | `get_download_url(slug, id)` | Get download page URL (sync) |
-| `get_direct_url(slug, id)` | Get direct CDN URL (async) |
+| `get_direct_url(slug, id)` | Get best quality CDN URL |
+| `get_video_sources(slug, id)` | Get all quality variants |
+| `get_video_page_data(slug, id)` | Get sources + subtitles (single fetch) |
+| `get_subtitle_tracks(slug, id)` | Get subtitle tracks |
+| `get_original_url(slug, id)` | Get original file via download flow |
+| `search_movie(name, year)` | Search for a specific movie |
+| `search_movie_all(name, year)` | Search with all matching results |
 
 ## License
 

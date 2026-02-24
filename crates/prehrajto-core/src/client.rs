@@ -101,6 +101,8 @@ impl PrehrajtoClient {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .user_agent(USER_AGENT)
+            .cookie_store(true)
+            .redirect(reqwest::redirect::Policy::none())
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(
@@ -120,6 +122,8 @@ impl PrehrajtoClient {
     }
 
     /// Fetch HTML content from a path on prehraj.to
+    ///
+    /// Automatically follows redirects for non-CDN URLs (normal page navigation).
     ///
     /// # Arguments
     /// * `path` - The path to fetch (e.g., "/search?q=test")
@@ -163,30 +167,78 @@ impl PrehrajtoClient {
         Err(last_error.unwrap_or(PrehrajtoError::RateLimited))
     }
 
-    /// Perform a single fetch attempt
+    /// Perform a single fetch attempt with manual redirect following
+    ///
+    /// Follows redirects for same-site URLs but stops for CDN URLs
+    /// to prevent accidentally downloading large binary files.
     async fn do_fetch(&self, url: &str) -> Result<String> {
+        let mut current_url = url.to_string();
+        let max_redirects = 5;
+
+        for _ in 0..max_redirects {
+            let response = self
+                .client
+                .get(&current_url)
+                .send()
+                .await
+                .map_err(PrehrajtoError::HttpError)?;
+
+            let status = response.status();
+
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                return Err(PrehrajtoError::RateLimited);
+            }
+
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(PrehrajtoError::NotFound(current_url));
+            }
+
+            if status.is_server_error() {
+                return Err(PrehrajtoError::HttpError(
+                    response.error_for_status().unwrap_err(),
+                ));
+            }
+
+            // Handle redirects manually — follow only non-CDN redirects
+            if status.is_redirection() {
+                if let Some(location) = response.headers().get(reqwest::header::LOCATION)
+                    && let Ok(loc_str) = location.to_str()
+                {
+                    // Don't follow redirects to CDN (would download binary files)
+                    if loc_str.contains("premiumcdn.net") {
+                        return response.text().await.map_err(PrehrajtoError::HttpError);
+                    }
+                    current_url = loc_str.to_string();
+                    continue;
+                }
+                // No Location header or can't parse — return the body as-is
+                return response.text().await.map_err(PrehrajtoError::HttpError);
+            }
+
+            return response.text().await.map_err(PrehrajtoError::HttpError);
+        }
+
+        Err(PrehrajtoError::ParseError(
+            "Too many redirects".to_string(),
+        ))
+    }
+
+    /// Fetch a download page without following redirects
+    ///
+    /// The `?do=download` page returns 302 with an HTML body containing
+    /// the CDN link. This uses the main cookie-bearing client but does
+    /// NOT follow any redirects — returns the response body as-is.
+    pub async fn fetch_download_page(&self, path: &str) -> Result<String> {
+        let url = format!("{}{}", BASE_URL, path);
+
+        self.rate_limiter.acquire().await;
+
         let response = self
             .client
-            .get(url)
+            .get(&url)
             .send()
             .await
             .map_err(PrehrajtoError::HttpError)?;
-
-        let status = response.status();
-
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(PrehrajtoError::RateLimited);
-        }
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(PrehrajtoError::NotFound(url.to_string()));
-        }
-
-        if status.is_server_error() {
-            return Err(PrehrajtoError::HttpError(
-                response.error_for_status().unwrap_err(),
-            ));
-        }
 
         response.text().await.map_err(PrehrajtoError::HttpError)
     }

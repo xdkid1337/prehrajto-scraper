@@ -59,13 +59,16 @@ pub use client::{ClientConfig, PrehrajtoClient, RateLimiter};
 pub use error::{PrehrajtoError, Result};
 
 // Re-export parser functions
-pub use parser::{parse_direct_url, parse_search_results};
+pub use parser::{
+    parse_direct_url, parse_original_download_url, parse_search_results, parse_subtitle_tracks,
+    parse_video_sources,
+};
 
 // Re-export main scraper API
 pub use scraper::PrehrajtoScraper;
 
 // Re-export data types
-pub use types::VideoResult;
+pub use types::{SubtitleTrack, VideoPageData, VideoResult, VideoSource};
 
 // Re-export URL helper functions for convenience
 pub use url::{build_download_url, build_search_url, build_video_url, extract_video_info};

@@ -4,8 +4,11 @@
 
 use crate::client::{ClientConfig, PrehrajtoClient};
 use crate::error::{PrehrajtoError, Result};
-use crate::parser::{parse_direct_url, parse_search_results};
-use crate::types::VideoResult;
+use crate::parser::{
+    parse_direct_url, parse_original_download_url, parse_subtitle_tracks, parse_video_sources,
+};
+use crate::parser::parse_search_results;
+use crate::types::{SubtitleTrack, VideoPageData, VideoResult, VideoSource};
 use crate::url::{build_download_url, build_search_url};
 
 /// Main scraper API for prehraj.to
@@ -57,21 +60,7 @@ impl PrehrajtoScraper {
     /// - `InvalidId` if query is empty or whitespace only
     /// - `HttpError` if network request fails
     /// - `ParseError` if HTML parsing fails
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example() -> prehrajto_core::Result<()> {
-    /// use prehrajto_core::PrehrajtoScraper;
-    /// let scraper = PrehrajtoScraper::new()?;
-    /// let results = scraper.search("doctor who").await?;
-    /// for video in results {
-    ///     println!("{}: {}", video.name, video.download_url);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn search(&self, query: &str) -> Result<Vec<VideoResult>> {
-        // Validate query is not empty or whitespace
         let trimmed = query.trim();
         if trimmed.is_empty() {
             return Err(PrehrajtoError::InvalidId(
@@ -79,15 +68,11 @@ impl PrehrajtoScraper {
             ));
         }
 
-        // Build search URL with encoded query
         let search_url = build_search_url(trimmed);
-        
-        // Extract path from full URL for client.fetch()
         let path = search_url
             .strip_prefix("https://prehraj.to")
             .unwrap_or(&search_url);
 
-        // Fetch and parse results
         let html = self.client.fetch(path).await?;
         parse_search_results(&html)
     }
@@ -103,19 +88,7 @@ impl PrehrajtoScraper {
     ///
     /// # Errors
     /// - `InvalidId` if video_id is empty
-    ///
-    /// # Example
-    /// ```
-    /// # fn example() -> prehrajto_core::Result<()> {
-    /// use prehrajto_core::PrehrajtoScraper;
-    /// let scraper = PrehrajtoScraper::new()?;
-    /// let url = scraper.get_download_url("doctor-who-s07e05", "63aba7f51f6cf")?;
-    /// assert_eq!(url, "https://prehraj.to/doctor-who-s07e05/63aba7f51f6cf?do=download");
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn get_download_url(&self, video_slug: &str, video_id: &str) -> Result<String> {
-        // Validate video_id is not empty
         if video_id.trim().is_empty() {
             return Err(PrehrajtoError::InvalidId(
                 "Video ID cannot be empty".to_string(),
@@ -125,60 +98,162 @@ impl PrehrajtoScraper {
         Ok(build_download_url(video_slug, video_id))
     }
 
-    /// Get direct CDN URL for a video file
+    /// Get direct CDN URL for a video file (best quality)
     ///
-    /// Fetches the download page and extracts the actual CDN URL
-    /// (premiumcdn.net) with token and expiration parameters.
+    /// Fetches the video page and extracts the highest quality CDN URL
+    /// from the player initialization blocks.
     ///
     /// # Arguments
-    /// * `video_slug` - URL slug of the video (e.g., "teorie-velkeho-tresku-s01e01-cz-dabing")
-    /// * `video_id` - ID of the video (e.g., "5cf41ef5c543f")
+    /// * `video_slug` - URL slug of the video
+    /// * `video_id` - ID of the video
     ///
     /// # Returns
-    /// Direct URL to CDN (premiumcdn.net) with token and expiration
+    /// Direct URL to CDN (premiumcdn.net) — highest resolution available
     ///
     /// # Errors
     /// - `InvalidId` if video_id is empty
     /// - `NotFound` if CDN URL cannot be found in the response
     /// - `HttpError` for network errors
     ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example() -> prehrajto_core::Result<()> {
-    /// use prehrajto_core::PrehrajtoScraper;
-    /// let scraper = PrehrajtoScraper::new()?;
-    /// let direct_url = scraper.get_direct_url("doctor-who-s07e05", "63aba7f51f6cf").await?;
-    /// // Returns something like:
-    /// // https://prg-c8-storage5.premiumcdn.net/13756776/...?filename=...&token=...&expires=...
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
     /// # Note
     /// The returned URL has an expiration time (expires parameter),
     /// so it cannot be cached long-term.
     pub async fn get_direct_url(&self, video_slug: &str, video_id: &str) -> Result<String> {
-        // Validate video_id is not empty
         if video_id.trim().is_empty() {
             return Err(PrehrajtoError::InvalidId(
                 "Video ID cannot be empty".to_string(),
             ));
         }
 
-        // Build the download URL path
-        let path = format!("/{}/{}?do=download", video_slug, video_id);
-
-        // Fetch the download page
+        // Fetch the video page (NOT ?do=download) to get player sources
+        let path = format!("/{}/{}", video_slug, video_id);
         let html = self.client.fetch(&path).await?;
 
-        // Parse and extract the direct CDN URL
         parse_direct_url(&html)
     }
 
-    /// Search for a movie by name, returning the best match
+    /// Get all streaming quality variants for a video
     ///
-    /// Builds a query from the movie name and optional release year,
-    /// then returns the first (best) matching result.
+    /// Fetches the video page and parses JS player sources to extract
+    /// all available quality variants (e.g., 720p, 1080p).
+    ///
+    /// # Arguments
+    /// * `video_slug` - URL slug of the video
+    /// * `video_id` - ID of the video
+    ///
+    /// # Returns
+    /// Vector of [`VideoSource`] with all available qualities
+    ///
+    /// # Errors
+    /// - `InvalidId` if video_id is empty
+    /// - `HttpError` for network errors
+    pub async fn get_video_sources(
+        &self,
+        video_slug: &str,
+        video_id: &str,
+    ) -> Result<Vec<VideoSource>> {
+        let data = self.get_video_page_data(video_slug, video_id).await?;
+        Ok(data.sources)
+    }
+
+    /// Get all streaming sources AND subtitle tracks for a video
+    ///
+    /// Fetches the video page **once** and parses both JS sources and
+    /// tracks arrays, avoiding double-fetching.
+    ///
+    /// # Arguments
+    /// * `video_slug` - URL slug of the video
+    /// * `video_id` - ID of the video
+    ///
+    /// # Returns
+    /// [`VideoPageData`] with sources and subtitles
+    ///
+    /// # Errors
+    /// - `InvalidId` if video_id is empty
+    /// - `HttpError` for network errors
+    pub async fn get_video_page_data(
+        &self,
+        video_slug: &str,
+        video_id: &str,
+    ) -> Result<VideoPageData> {
+        if video_id.trim().is_empty() {
+            return Err(PrehrajtoError::InvalidId(
+                "Video ID cannot be empty".to_string(),
+            ));
+        }
+
+        let path = format!("/{}/{}", video_slug, video_id);
+        let html = self.client.fetch(&path).await?;
+
+        Ok(VideoPageData {
+            sources: parse_video_sources(&html),
+            subtitles: parse_subtitle_tracks(&html),
+        })
+    }
+
+    /// Get subtitle tracks for a video
+    ///
+    /// Convenience method — fetches the video page and extracts subtitle tracks.
+    ///
+    /// # Arguments
+    /// * `video_slug` - URL slug of the video
+    /// * `video_id` - ID of the video
+    ///
+    /// # Returns
+    /// Vector of [`SubtitleTrack`] (empty if no subtitles available)
+    ///
+    /// # Errors
+    /// - `InvalidId` if video_id is empty
+    /// - `HttpError` for network errors
+    pub async fn get_subtitle_tracks(
+        &self,
+        video_slug: &str,
+        video_id: &str,
+    ) -> Result<Vec<SubtitleTrack>> {
+        let data = self.get_video_page_data(video_slug, video_id).await?;
+        Ok(data.subtitles)
+    }
+
+    /// Get the original uploaded file URL via download flow
+    ///
+    /// Performs a two-step cookie flow:
+    /// 1. GET video page — sets required cookies (`_nss`, `u_uid`)
+    /// 2. GET `?do=download` with cookies — returns redirect page with original file link
+    ///
+    /// # Arguments
+    /// * `video_slug` - URL slug of the video
+    /// * `video_id` - ID of the video
+    ///
+    /// # Returns
+    /// A [`VideoSource`] representing the original uploaded file
+    ///
+    /// # Errors
+    /// - `InvalidId` if video_id is empty
+    /// - `NotFound` if original file URL cannot be found
+    /// - `HttpError` for network errors
+    pub async fn get_original_url(
+        &self,
+        video_slug: &str,
+        video_id: &str,
+    ) -> Result<VideoSource> {
+        if video_id.trim().is_empty() {
+            return Err(PrehrajtoError::InvalidId(
+                "Video ID cannot be empty".to_string(),
+            ));
+        }
+
+        // Step 1: Fetch video page to set cookies (_nss, u_uid)
+        let video_path = format!("/{}/{}", video_slug, video_id);
+        let _ = self.client.fetch(&video_path).await?;
+
+        // Step 2: Fetch download page with cookies (no redirect following)
+        let download_path = format!("/{}/{}?do=download", video_slug, video_id);
+        let html = self.client.fetch_download_page(&download_path).await?;
+
+        parse_original_download_url(&html)
+    }
+
+    /// Search for a movie by name, returning the best match
     ///
     /// # Arguments
     /// * `movie_name` - Movie title to search for
@@ -186,24 +261,6 @@ impl PrehrajtoScraper {
     ///
     /// # Returns
     /// The best matching `VideoResult`, or `None` if no results found
-    ///
-    /// # Errors
-    /// - `InvalidId` if movie_name is empty or whitespace only
-    /// - `HttpError` if network request fails
-    /// - `ParseError` if HTML parsing fails
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example() -> prehrajto_core::Result<()> {
-    /// use prehrajto_core::PrehrajtoScraper;
-    /// let scraper = PrehrajtoScraper::new()?;
-    /// let movie = scraper.search_movie("Inception", Some(2010)).await?;
-    /// if let Some(video) = movie {
-    ///     println!("{}: {}", video.name, video.download_url);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn search_movie(
         &self,
         movie_name: &str,
@@ -215,33 +272,12 @@ impl PrehrajtoScraper {
 
     /// Search for all movie sources by name
     ///
-    /// Builds a query from the movie name and optional release year,
-    /// then returns all matching results.
-    ///
     /// # Arguments
     /// * `movie_name` - Movie title to search for
     /// * `year` - Optional release year to narrow results
     ///
     /// # Returns
     /// Vector of matching video results, empty if no results found
-    ///
-    /// # Errors
-    /// - `InvalidId` if movie_name is empty or whitespace only
-    /// - `HttpError` if network request fails
-    /// - `ParseError` if HTML parsing fails
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example() -> prehrajto_core::Result<()> {
-    /// use prehrajto_core::PrehrajtoScraper;
-    /// let scraper = PrehrajtoScraper::new()?;
-    /// let results = scraper.search_movie_all("Inception", Some(2010)).await?;
-    /// for video in results {
-    ///     println!("{}: {}", video.name, video.download_url);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn search_movie_all(
         &self,
         movie_name: &str,

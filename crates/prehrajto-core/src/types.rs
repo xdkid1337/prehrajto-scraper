@@ -35,6 +35,52 @@ pub struct VideoResult {
     pub file_size: Option<String>,
 }
 
+/// A single video quality source from the player
+///
+/// Represents one quality variant (e.g., 720p, 1080p) extracted from
+/// the video page's JavaScript player initialization blocks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoSource {
+    /// Direct CDN URL for this quality variant
+    pub url: String,
+    /// Quality label as shown in the player (e.g., "720p", "1080p")
+    pub label: String,
+    /// Numeric resolution height (720, 1080, 2160, etc.)
+    pub resolution: u32,
+    /// Whether this is marked as the default quality
+    pub is_default: bool,
+    /// File extension if known (e.g., "mp4", "mkv", "avi")
+    pub format: Option<String>,
+}
+
+/// A subtitle track from the video page
+///
+/// Represents a VTT subtitle file extracted from the video page's
+/// JavaScript player initialization blocks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubtitleTrack {
+    /// Direct CDN URL for the VTT subtitle file
+    pub url: String,
+    /// ISO language code (e.g., "eng", "cze")
+    pub language: String,
+    /// Human-readable label (e.g., "ENG", "CZE")
+    pub label: String,
+    /// Whether this is the default subtitle track
+    pub is_default: bool,
+}
+
+/// Complete video page data — sources + subtitles
+///
+/// Returned by [`crate::PrehrajtoScraper::get_video_page_data`] to avoid
+/// double-fetching the video page when both sources and subtitles are needed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoPageData {
+    /// Available video quality sources
+    pub sources: Vec<VideoSource>,
+    /// Available subtitle tracks
+    pub subtitles: Vec<SubtitleTrack>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

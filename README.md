@@ -6,6 +6,9 @@ Async Rust library for searching videos and getting download links from [prehraj
 
 - 🔍 Search videos by keywords
 - 📥 Generate direct download URLs
+- 🎬 Quality selection — all variants, best by default
+- 📝 Subtitle extraction — VTT tracks with language metadata
+- 📦 Original file download via cookie-based flow
 - ⏱️ Built-in rate limiting to respect server limits
 - 🔄 Automatic retry with exponential backoff
 - 🖥️ Tauri plugin for desktop apps

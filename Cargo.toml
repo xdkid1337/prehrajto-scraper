@@ -6,7 +6,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 authors = ["xdkid1337"]
@@ -17,7 +17,7 @@ repository = "https://github.com/xdkid1337/prehrajto-scraper"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "cookies"] }
 
 # HTML parsing
 scraper = "0.25.0"

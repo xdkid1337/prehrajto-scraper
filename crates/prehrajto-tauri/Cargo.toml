@@ -11,7 +11,7 @@ keywords = ["tauri", "plugin", "prehrajto", "video"]
 categories = ["gui"]
 
 [dependencies]
-prehrajto-core = "0.1"
+prehrajto-core = { workspace = true }
 tauri = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
